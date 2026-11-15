@@ -108,7 +108,7 @@ function seed(){var w={};w['ramesh'+TODAY]=6;return{
 var S=load();
 function load(){try{var r=localStorage.getItem(KEY);if(r){var o=JSON.parse(r);if(o&&o.members){o.members.forEach(function(m){m.img=imageSrc(m.img,m.id)});return o}}}catch(e){}return seed()}
 /* ---------- Backend (Flask API) ---------- */
-var BACKEND_ON=false,dbState='off',pushTimer=null,skipPush=false;
+var BACKEND_ON=false,WA_ON=false,dbState='off',pushTimer=null,skipPush=false;
 var SYNC_KEYS=['family','members','reports','water','taken','refill','consent','series','medIdx'];
 function snapshot(){var o={};SYNC_KEYS.forEach(function(k){o[k]=S[k]});return o}
 function dbLabel(){
@@ -149,7 +149,7 @@ function pullNow(done){
 }
 function checkBackend(cb){
  fetch('/api/health',{cache:'no-store'}).then(function(r){return r.ok?r.json():null}).then(function(j){
-  BACKEND_ON=!!(j&&j.ok);dbState=BACKEND_ON?'idle':'off';
+  BACKEND_ON=!!(j&&j.ok);WA_ON=!!(j&&j.whatsapp);dbState=BACKEND_ON?'idle':'off';
  }).catch(function(){BACKEND_ON=false}).then(function(){cb&&cb()});
 }
 function save(){
@@ -334,6 +334,14 @@ function waLink(text,phone){
  return 'https://wa.me/'+(d.length>=11?d:'')+'?text='+encodeURIComponent(text);
 }
 function openWa(text,phone){window.open(waLink(text,phone),'_blank','noopener')}
+function sendWa(text,phone){
+ var d=String(phone||'').replace(/\D/g,'');
+ if(WA_ON&&dbActive()&&d.length>=10){
+  toast('Sending on WhatsApp…');
+  api('POST','/api/whatsapp/send',{to:d,text:text}).then(function(){toast('Reminder sent on WhatsApp ✓')})
+   .catch(function(e){if(e.status===401){expire();return}toast(e.message);openWa(text,phone)});
+ }else openWa(text,phone);
+}
 function summaryText(m){return ['KINORA CLINIC SUMMARY','Name: '+m.name+' '+S.family,'Age/Sex: '+m.age+' years, '+m.sex,'Prepared: '+fmtDate(TODAY),'Blood pressure: '+m.bp+' mmHg | Heart rate: '+m.hr+' bpm | Oxygen: '+m.spo2+'%','Conditions: '+(m.conds.join(', ')||'None recorded'),'Known allergy: '+(m.allergies.join(', ')||'None recorded'),'Active medicines: '+(m.meds.map(function(x){return x.name+' ('+x.time+')'}).join('; ')||'None recorded'),'Informational support, not a diagnosis.'].join('\n')}
 function contactFor(m){var o=S.members.filter(function(x){return x.id!==m.id&&x.age>=18});var pref=S.members.filter(function(x){return x.id==='meera'&&x.id!==m.id})[0];return pref||o[0]||null}
 function clinicView(m){
@@ -460,7 +468,7 @@ document.addEventListener('click',function(e){
   var md2=m.meds[Math.min(S.medIdx||0,Math.max(0,m.meds.length-1))];
   if(!md2||md2.left==null){toast('Save a tablet count first');return}
   var per2=md2.doses||1,days2=Math.floor(md2.left/per2),c2=contactFor(m);
-  openWa('Kinora reminder: '+m.name+'’s '+md2.name+' has only '+md2.left+' tablet'+(md2.left===1?'':'s')+' left (about '+days2+' day'+(days2===1?'':'s')+'). Please arrange a refill. Sent from Kinora.',c2&&c2.contact)}
+  sendWa('Kinora reminder: '+m.name+'’s '+md2.name+' has only '+md2.left+' tablet'+(md2.left===1?'':'s')+' left (about '+days2+' day'+(days2===1?'':'s')+'). Please arrange a refill. Sent from Kinora.',c2&&c2.contact)}
  else if(a==='shareconsent'){if(!S.consent[m.id]){privacyModal();toast('Allow sharing first')}else copy(summaryText(m),'Summary copied. Paste it into your message.')}
 });
 document.addEventListener('change',function(e){
