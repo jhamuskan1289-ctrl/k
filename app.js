@@ -317,7 +317,7 @@ function medsView(m){
  if(md&&md.left!=null){
   var per=md.doses||1,days=Math.floor(md.left/per),low=md.left<=5,filled=Math.min(10,md.left),key=m.id+'|'+idx,pl='';
   for(var i=0;i<10;i++)pl+='<span class="'+(i<filled?'on':'')+'"></span>';
-  refillCard='<div class="card refill"><h2>A refill before you run out.</h2><p class="sub">'+esc(m.name)+' • '+esc(md.name)+'</p><div class="pills" aria-hidden="true">'+pl+'</div><div class="low'+(low?'':' ok')+'"><b>'+(low?'Only '+md.left+' tablets left':md.left+' tablets left')+'</b><p>About '+days+' day'+(days===1?'':'s')+' at the saved daily schedule.</p></div>'+(md.expiry?'<p class="exp">Pack expiry: '+esc(md.expiry)+'</p>':'<p class="exp"></p>')+'<button class="link" data-act="refill" data-k="'+key+'">'+(S.refill[key]?'Refill reminder sent ✓':'Plan a refill '+ic('arrow'))+'</button></div>';
+  refillCard='<div class="card refill"><h2>A refill before you run out.</h2><p class="sub">'+esc(m.name)+' • '+esc(md.name)+'</p><div class="pills" aria-hidden="true">'+pl+'</div><div class="low'+(low?'':' ok')+'"><b>'+(low?'Only '+md.left+' tablets left':md.left+' tablets left')+'</b><p>About '+days+' day'+(days===1?'':'s')+' at the saved daily schedule.</p></div>'+(md.expiry?'<p class="exp">Pack expiry: '+esc(md.expiry)+'</p>':'<p class="exp"></p>')+'<div class="row" style="gap:22px"><button class="link" data-act="refill" data-k="'+key+'">'+(S.refill[key]?'Refill reminder sent ✓':'Plan a refill '+ic('arrow'))+'</button><button class="link" data-act="warefill">Remind family on WhatsApp</button></div></div>';
  }else refillCard='<div class="card refill"><h2>A refill before you run out.</h2><p class="sub">'+esc(m.name)+(md?' • '+esc(md.name):'')+'</p><p class="muted">'+(md?'No tablet count is saved for this medicine. Check the dose counter or pack and refill before it runs out.':'Save a medicine to track how many tablets are left.')+'</p></div>';
 
  return '<div class="search">'+ic('search')+'<input id="dq" type="text" placeholder="Search a tablet name, e.g. Amlodipine 5 mg" value="'+esc(q||'')+'" aria-label="Search a tablet name"><button class="link" data-act="drugsearch">Search '+ic('arrow')+'</button></div>'+
@@ -327,6 +327,13 @@ function medsView(m){
 }
 
 /* ---------- Clinic & SOS ---------- */
+/* ---------- WhatsApp sharing (opens WhatsApp with the message ready) ---------- */
+function waLink(text,phone){
+ var d=String(phone||'').replace(/\D/g,'');
+ if(d.length===10)d='91'+d;
+ return 'https://wa.me/'+(d.length>=11?d:'')+'?text='+encodeURIComponent(text);
+}
+function openWa(text,phone){window.open(waLink(text,phone),'_blank','noopener')}
 function summaryText(m){return ['KINORA CLINIC SUMMARY','Name: '+m.name+' '+S.family,'Age/Sex: '+m.age+' years, '+m.sex,'Prepared: '+fmtDate(TODAY),'Blood pressure: '+m.bp+' mmHg | Heart rate: '+m.hr+' bpm | Oxygen: '+m.spo2+'%','Conditions: '+(m.conds.join(', ')||'None recorded'),'Known allergy: '+(m.allergies.join(', ')||'None recorded'),'Active medicines: '+(m.meds.map(function(x){return x.name+' ('+x.time+')'}).join('; ')||'None recorded'),'Informational support, not a diagnosis.'].join('\n')}
 function contactFor(m){var o=S.members.filter(function(x){return x.id!==m.id&&x.age>=18});var pref=S.members.filter(function(x){return x.id==='meera'&&x.id!==m.id})[0];return pref||o[0]||null}
 function clinicView(m){
@@ -340,7 +347,7 @@ function clinicView(m){
  '<h3 class="sec">Health history</h3><p class="lines">'+(esc(m.conds.join(' · '))||'None recorded')+(m.allergies.length?'<br>Known allergy: '+esc(m.allergies.join(', ')):'')+'</p>'+
  '<h3 class="sec">Active medicines</h3><p class="lines">'+meds+'</p>'+
  '<h3 class="sec">Recent progress & questions</h3><p class="lines">'+(prog?prog+'<br>Ask about target range and ongoing supplementation.':'No reports saved yet.')+'</p>'+
- '<div class="acts"><button class="btn" data-act="copysum">Copy summary</button><button class="btn soft" data-act="shareconsent">Share with consent</button></div>'+(on?'<p class="small" style="margin-top:12px;color:var(--sage-ink)">Consent is on for '+esc(m.name)+'. Copy the summary and paste it into your message to the clinic.</p>':'<p class="small muted" style="margin-top:12px">Sharing stays off until you allow it under Privacy & consent.</p>')+'</div>'+
+ '<div class="acts"><button class="btn" data-act="copysum">Copy summary</button><button class="btn soft" data-act="shareconsent">Share with consent</button><button class="btn green" style="grid-column:1/-1" data-act="wasum">Share on WhatsApp</button></div>'+(on?'<p class="small" style="margin-top:12px;color:var(--sage-ink)">Consent is on for '+esc(m.name)+'. Copy the summary and paste it into your message to the clinic.</p>':'<p class="small muted" style="margin-top:12px">Sharing stays off until you allow it under Privacy & consent.</p>')+'</div>'+
  '<div class="sos"><div class="hd"><small>EMERGENCY MEDICAL ID</small><h2>The essentials. Instantly.</h2></div><div class="bd"><h2>'+esc(m.name)+' '+esc(S.family)+'</h2><p class="m">'+m.age+' years · Emergency profile</p>'+
  '<div class="bg"><div><span class="a">BLOOD GROUP</span><small class="b">Confirm before transfusion</small></div><div class="v">'+esc(m.blood||'?')+'</div></div>'+
  '<div class="lab">CONDITIONS</div><div class="val">'+(esc(m.conds.join(' · '))||'None recorded')+'</div>'+
@@ -448,6 +455,12 @@ document.addEventListener('click',function(e){
  else if(a==='take'){var k=el.dataset.k,mm=S.members.filter(function(x){return x.id===el.dataset.mid})[0],md=mm.meds[+el.dataset.i];
   if(S.taken[k]){delete S.taken[k];if(md.left!=null)md.left++}else{S.taken[k]=true;if(md.left!=null)md.left=Math.max(0,md.left-1)}render()}
  else if(a==='copysum')copy(summaryText(m),'Summary copied');
+ else if(a==='wasum'){if(!S.consent[m.id]){privacyModal();toast('Allow sharing first');return}openWa(summaryText(m))}
+ else if(a==='warefill'){
+  var md2=m.meds[Math.min(S.medIdx||0,Math.max(0,m.meds.length-1))];
+  if(!md2||md2.left==null){toast('Save a tablet count first');return}
+  var per2=md2.doses||1,days2=Math.floor(md2.left/per2),c2=contactFor(m);
+  openWa('Kinora reminder: '+m.name+'’s '+md2.name+' has only '+md2.left+' tablet'+(md2.left===1?'':'s')+' left (about '+days2+' day'+(days2===1?'':'s')+'). Please arrange a refill. Sent from Kinora.',c2&&c2.contact)}
  else if(a==='shareconsent'){if(!S.consent[m.id]){privacyModal();toast('Allow sharing first')}else copy(summaryText(m),'Summary copied. Paste it into your message.')}
 });
 document.addEventListener('change',function(e){
