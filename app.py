@@ -17,7 +17,11 @@ import os
 import re
 import secrets
 import sqlite3
+import base64
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 from flask import Flask, g, jsonify, request, send_from_directory
 
@@ -27,6 +31,15 @@ PEPPER = os.environ.get("KINORA_SECRET", "change-me-in-production")
 # In demo mode the code is returned to the app so judges can sign in without SMS.
 # Set KINORA_DEMO=0 and connect an SMS or email provider in send_code() for real use.
 DEMO_MODE = os.environ.get("KINORA_DEMO", "1") == "1"
+
+# Optional: real WhatsApp messages through Twilio (free sandbox works for testing).
+TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
+TWILIO_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
+TWILIO_FROM = os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
+TWILIO_BASE = os.environ.get("TWILIO_API_BASE", "https://api.twilio.com")
+WA_ENABLED = bool(TWILIO_SID and TWILIO_TOKEN)
+WA_LIMIT = 10               # messages per sign-in session per hour
+_wa_log = {}
 
 OTP_TTL = 5 * 60            # a code is valid for 5 minutes
 OTP_COOLDOWN = 20           # seconds between codes for the same contact
@@ -135,7 +148,7 @@ def current_session():
 # ---------- API ----------
 @app.get("/api/health")
 def health():
-    return jsonify({"ok": True, "service": "kinora", "demo_codes": DEMO_MODE})
+    return jsonify({"ok": True, "service": "kinora", "demo_codes": DEMO_MODE, "whatsapp": WA_ENABLED})
 
 
 @app.post("/api/auth/send-code")
@@ -244,6 +257,44 @@ def api_put_state():
     )
     db.commit()
     return jsonify({"saved": True})
+
+
+@app.post("/api/whatsapp/send")
+def api_whatsapp_send():
+    sess = current_session()
+    if not sess:
+        return fail("Sign in first.", 401)
+    if not WA_ENABLED:
+        return fail("WhatsApp sending is not set up on this server.", 503)
+    data = request.get_json(silent=True) or {}
+    digits = re.sub(r"\D", "", str(data.get("to", "")))
+    if len(digits) == 10:
+        digits = "91" + digits
+    text = str(data.get("text", "")).strip()[:1000]
+    if len(digits) < 11 or len(digits) > 15 or not text:
+        return fail("Need a valid phone number and a message.")
+    key = sess["token_hash"]
+    now = time.time()
+    recent = [t for t in _wa_log.get(key, []) if now - t < 3600]
+    if len(recent) >= WA_LIMIT:
+        return fail("Too many WhatsApp messages. Try again later.", 429)
+    body = urllib.parse.urlencode({
+        "From": TWILIO_FROM, "To": "whatsapp:+" + digits, "Body": text}).encode()
+    req = urllib.request.Request(
+        f"{TWILIO_BASE}/2010-04-01/Accounts/{TWILIO_SID}/Messages.json", data=body)
+    cred = base64.b64encode(f"{TWILIO_SID}:{TWILIO_TOKEN}".encode()).decode()
+    req.add_header("Authorization", "Basic " + cred)
+    try:
+        urllib.request.urlopen(req, timeout=10).read()
+    except urllib.error.HTTPError as e:
+        app.logger.warning("Twilio error %s: %s", e.code, e.read()[:200])
+        return fail("WhatsApp could not deliver the message. The number may need to join the sandbox.", 502)
+    except Exception as e:  # network trouble
+        app.logger.warning("Twilio failure: %s", e)
+        return fail("Could not reach WhatsApp. Try again.", 502)
+    recent.append(now)
+    _wa_log[key] = recent
+    return jsonify({"ok": True})
 
 
 @app.post("/api/auth/logout")
